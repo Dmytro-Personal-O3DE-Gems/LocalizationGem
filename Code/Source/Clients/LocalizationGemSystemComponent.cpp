@@ -76,11 +76,13 @@ namespace LocalizationGem
     void LocalizationGemSystemComponent::Activate()
     {
         // 1. Prepare the data first, so nobody can reach a half-ready component.
-        //    First version: a hardcoded English table. CSV loading will replace this block.
-        m_currentLanguage = "en";
-        m_localizedStrings.emplace("door.open", "Open");
-        m_localizedStrings.emplace("door.close", "Close");
-        m_localizedStrings.emplace("door.lock", "Lock");
+        //    First version: a hardcoded table. CSV loading will replace this block.
+        //    TEMPORARY test data: Spanish, so a translated label differs from its English default text,
+        //    and "door.force" is left out on purpose to see the fallback to the default text.
+        m_currentLanguage = "es";
+        m_localizedStrings.emplace("door.open", "Abrir");
+        m_localizedStrings.emplace("door.close", "Cerrar");
+        m_localizedStrings.emplace("door.lock", "Bloquear");
 
         // 2. Go live: own API, then both access paths required by LocalizationContract.
         LocalizationGemRequestBus::Handler::BusConnect();
@@ -91,16 +93,6 @@ namespace LocalizationGem
         AZ_Error("LocalizationGem", registerOutcome.IsSuccess(),
             "Failed to register as the LocalizationContract implementation: %s",
             registerOutcome.GetError().c_str());
-
-        // Temporary smoke test through the contract: checks the registration, not only the table.
-        // TODO: remove once a real consumer (InteractionSystemUI) uses the contract.
-        if (auto* localization = LocalizationContract::LocalizationContractInterface::Get())
-        {
-            const AZStd::optional<AZStd::string> label = localization->GetLocalizedString("door.open");
-            AZ_TracePrintf("LocalizationGem", "Contract test: language '%s', door.open = '%s'\n",
-                localization->GetCurrentLanguage().c_str(),
-                label ? label->c_str() : "<not found>");
-        }
     }
 
     void LocalizationGemSystemComponent::Deactivate()

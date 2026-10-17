@@ -4,4 +4,6 @@ set(FILES
     Source/LocalizationGemModuleInterface.h
     Source/Clients/LocalizationGemSystemComponent.cpp
     Source/Clients/LocalizationGemSystemComponent.h
+    Source/StringTableCsvParser.cpp
+    Source/StringTableCsvParser.h
 )
