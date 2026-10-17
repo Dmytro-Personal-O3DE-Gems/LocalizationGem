@@ -38,6 +38,21 @@ namespace LocalizationGem
     {
     }
 
+    AZStd::optional<AZStd::string> LocalizationGemSystemComponent::GetLocalizedString(const AZStd::string& key) const
+    {
+        auto it = m_localizedStrings.find(key);
+        if (it != m_localizedStrings.end())
+        {
+            return it->second;
+        }
+        return AZStd::nullopt;
+    }
+
+    AZStd::string LocalizationGemSystemComponent::GetCurrentLanguage() const
+    {
+        return m_currentLanguage;
+    }
+
     LocalizationGemSystemComponent::LocalizationGemSystemComponent()
     {
         if (LocalizationGemInterface::Get() == nullptr)
@@ -60,21 +75,48 @@ namespace LocalizationGem
 
     void LocalizationGemSystemComponent::Activate()
     {
+        // 1. Prepare the data first, so nobody can reach a half-ready component.
+        //    First version: a hardcoded English table. CSV loading will replace this block.
+        m_currentLanguage = "en";
+        m_localizedStrings.emplace("door.open", "Open");
+        m_localizedStrings.emplace("door.close", "Close");
+        m_localizedStrings.emplace("door.lock", "Lock");
+
+        // 2. Go live: own API, then both access paths required by LocalizationContract.
         LocalizationGemRequestBus::Handler::BusConnect();
 
         LocalizationContract::LocalizationContractRequestBus::Handler::BusConnect();
-        LocalizationContract::LocalizationContractInterface::Register(this);
+        // Register() does not log anything on failure, it only returns an Outcome.
+        const auto registerOutcome = LocalizationContract::LocalizationContractInterface::Register(this);
         AZ_Error("LocalizationGem", registerOutcome.IsSuccess(),
             "Failed to register as the LocalizationContract implementation: %s",
             registerOutcome.GetError().c_str());
+
+        // Temporary smoke test through the contract: checks the registration, not only the table.
+        // TODO: remove once a real consumer (InteractionSystemUI) uses the contract.
+        if (auto* localization = LocalizationContract::LocalizationContractInterface::Get())
+        {
+            const AZStd::optional<AZStd::string> label = localization->GetLocalizedString("door.open");
+            AZ_TracePrintf("LocalizationGem", "Contract test: language '%s', door.open = '%s'\n",
+                localization->GetCurrentLanguage().c_str(),
+                label ? label->c_str() : "<not found>");
+        }
     }
 
     void LocalizationGemSystemComponent::Deactivate()
     {
+        // Mirror order of Activate(): leave first, then destroy the data.
+        LocalizationContract::LocalizationContractRequestBus::Handler::BusDisconnect();
+        // Unregister only if it is really us: if Register() failed in Activate(), Unregister() would fail too.
+        if (LocalizationContract::LocalizationContractInterface::Get() == this)
+        {
+            LocalizationContract::LocalizationContractInterface::Unregister(this);
+        }
+
         LocalizationGemRequestBus::Handler::BusDisconnect();
 
-        LocalizationContract::LocalizationContractRequestBus::Handler::BusDisconnect();
-        LocalizationContract::LocalizationContractInterface::Unregister(this);
+        m_localizedStrings.clear();
+        m_currentLanguage.clear();
     }
 
 } // namespace LocalizationGem

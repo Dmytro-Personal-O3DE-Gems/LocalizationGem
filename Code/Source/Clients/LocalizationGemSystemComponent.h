@@ -5,6 +5,10 @@
 #include <LocalizationGem/LocalizationGemBus.h>
 #include <LocalizationContract/LocalizationContractBus.h>
 
+#include <AzCore/std/containers/unordered_map.h>
+#include <AzCore/std/optional.h>
+#include <AzCore/std/string/string.h>
+
 namespace LocalizationGem
 {
     class LocalizationGemSystemComponent
@@ -22,6 +26,12 @@ namespace LocalizationGem
         static void GetRequiredServices(AZ::ComponentDescriptor::DependencyArrayType& required);
         static void GetDependentServices(AZ::ComponentDescriptor::DependencyArrayType& dependent);
 
+        ////////////////////////////////////////////////////////////////////////
+        // LocalizationContractRequestBus interface implementation
+        AZStd::optional<AZStd::string> GetLocalizedString(const AZStd::string& key) const override;
+        AZStd::string GetCurrentLanguage() const override;
+        ////////////////////////////////////////////////////////////////////////
+
         LocalizationGemSystemComponent();
         ~LocalizationGemSystemComponent();
 
@@ -37,6 +47,12 @@ namespace LocalizationGem
         void Activate() override;
         void Deactivate() override;
         ////////////////////////////////////////////////////////////////////////
+
+    private:
+        // Current language code (e.g. "en") and its table always change together.
+        AZStd::string m_currentLanguage;
+        // Key -> text for m_currentLanguage.
+        AZStd::unordered_map<AZStd::string, AZStd::string> m_localizedStrings;
     };
 
 } // namespace LocalizationGem
