@@ -21,6 +21,7 @@
     "requirements": "",
     "documentation_url": "",
     "dependencies": [
+      "LocalizationContract"
     ],
     "repo_uri": "",
     "compatible_engines": [

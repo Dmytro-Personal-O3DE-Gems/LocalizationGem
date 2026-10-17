@@ -61,17 +61,20 @@ namespace LocalizationGem
     void LocalizationGemSystemComponent::Activate()
     {
         LocalizationGemRequestBus::Handler::BusConnect();
-        AZ::TickBus::Handler::BusConnect();
+
+        LocalizationContract::LocalizationContractRequestBus::Handler::BusConnect();
+        LocalizationContract::LocalizationContractInterface::Register(this);
+        AZ_Error("LocalizationGem", registerOutcome.IsSuccess(),
+            "Failed to register as the LocalizationContract implementation: %s",
+            registerOutcome.GetError().c_str());
     }
 
     void LocalizationGemSystemComponent::Deactivate()
     {
-        AZ::TickBus::Handler::BusDisconnect();
         LocalizationGemRequestBus::Handler::BusDisconnect();
-    }
 
-    void LocalizationGemSystemComponent::OnTick([[maybe_unused]] float deltaTime, [[maybe_unused]] AZ::ScriptTimePoint time)
-    {
+        LocalizationContract::LocalizationContractRequestBus::Handler::BusDisconnect();
+        LocalizationContract::LocalizationContractInterface::Unregister(this);
     }
 
 } // namespace LocalizationGem

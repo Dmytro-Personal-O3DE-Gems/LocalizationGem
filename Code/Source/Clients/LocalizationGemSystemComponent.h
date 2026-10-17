@@ -2,15 +2,15 @@
 #pragma once
 
 #include <AzCore/Component/Component.h>
-#include <AzCore/Component/TickBus.h>
 #include <LocalizationGem/LocalizationGemBus.h>
+#include <LocalizationContract/LocalizationContractBus.h>
 
 namespace LocalizationGem
 {
     class LocalizationGemSystemComponent
         : public AZ::Component
         , protected LocalizationGemRequestBus::Handler
-        , public AZ::TickBus::Handler
+        , public LocalizationContract::LocalizationContractRequestBus::Handler
     {
     public:
         AZ_COMPONENT_DECL(LocalizationGemSystemComponent);
@@ -36,11 +36,6 @@ namespace LocalizationGem
         void Init() override;
         void Activate() override;
         void Deactivate() override;
-        ////////////////////////////////////////////////////////////////////////
-
-        ////////////////////////////////////////////////////////////////////////
-        // AZTickBus interface implementation
-        void OnTick(float deltaTime, AZ::ScriptTimePoint time) override;
         ////////////////////////////////////////////////////////////////////////
     };
 
