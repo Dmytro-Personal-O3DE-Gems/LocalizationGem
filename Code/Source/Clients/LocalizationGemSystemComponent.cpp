@@ -45,6 +45,18 @@ namespace LocalizationGem
         {
             return it->second;
         }
+
+        // The prompt asks for its labels every tick, so a missing key would be
+        // reported on every call. Warn only the first time for each key:
+        // insert(...).second is true only when the key was not in the set yet.
+        if (m_reportedMissingKeys.insert(key).second)
+        {
+            AZ_Warning("LocalizationGem", false,
+                "No text for key '%s' in language '%s'. "
+                "The consumer will fall back to its own default text.",
+                key.c_str(), m_currentLanguage.c_str());
+        }
+
         return AZStd::nullopt;
     }
 

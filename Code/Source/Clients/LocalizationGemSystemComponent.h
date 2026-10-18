@@ -6,6 +6,7 @@
 #include <LocalizationContract/LocalizationContractBus.h>
 
 #include <AzCore/std/containers/unordered_map.h>
+#include <AzCore/std/containers/unordered_set.h>
 #include <AzCore/std/optional.h>
 #include <AzCore/std/string/string.h>
 
@@ -53,6 +54,8 @@ namespace LocalizationGem
         AZStd::string m_currentLanguage;
         // Key -> text for m_currentLanguage.
         AZStd::unordered_map<AZStd::string, AZStd::string> m_localizedStrings;
+        // Keys that have been reported as missing for m_currentLanguage.
+        mutable AZStd::unordered_set<AZStd::string> m_reportedMissingKeys;
     };
 
 } // namespace LocalizationGem
