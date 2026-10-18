@@ -4,6 +4,7 @@
 #include <LocalizationGem/LocalizationGemTypeIds.h>
 #include <AzCore/Utils/Utils.h>
 #include <StringTableCsvParser.h>
+#include <LocalizationContract/LocalizationContractNotificationBus.h>
 
 #include <AzCore/Serialization/SerializeContext.h>
 
@@ -104,6 +105,37 @@ namespace LocalizationGem
         }
     }
 
+    void LocalizationGemSystemComponent::SetLanguage(const AZStd::string& languageCode)
+    {
+        if (languageCode == m_currentLanguage)
+        {
+            return;
+        }
+
+        // Declared before the 'if' (not inside it): the table is still needed after the check.
+        AZStd::optional<StringTable> table = LoadStringTable(languageCode);
+        if (!table.has_value())
+        {
+            // LoadStringTable has already logged why the file could not be read.
+            // Nothing has been changed yet, so the previous language simply stays active.
+            AZ_Warning("LocalizationGem", false,
+                "Cannot switch to language '%s', keeping '%s'.",
+                languageCode.c_str(), m_currentLanguage.c_str());
+            return;
+        }
+
+        // The code and its table always change together.
+        m_currentLanguage = languageCode;
+        m_localizedStrings = AZStd::move(*table);
+        // The reported keys belonged to the previous language: a key missing there may exist now, and the other way round.
+        m_reportedMissingKeys.clear();
+
+        // Tell the listeners (menus etc.) to request their texts again. Only after a real change:
+        // the two early returns above changed nothing.
+        LocalizationContract::LocalizationContractNotificationBus::Broadcast(
+            &LocalizationContract::LocalizationContractNotifications::OnLocalizedStringsChanged);
+    }
+
     void LocalizationGemSystemComponent::Init()
     {
     }
@@ -114,8 +146,7 @@ namespace LocalizationGem
         //    Two tables are loaded from the cache (assets/strings/<language>.csv):
         //    - the fallback language (English): used when a key is missing in the current language;
         //    - the current language: what the player normally sees.
-        //    TEMPORARY: the current language is hardcoded to Spanish until there is a way to choose it.
-        //    es.csv has no "door.force" on purpose, to see the fallback.
+        //    TEMPORARY: the starting language is hardcoded until there is a saved player setting.
         if (auto table = LoadStringTable(FallbackLanguage); table.has_value())
         {
             m_fallbackStrings = AZStd::move(*table);
@@ -128,17 +159,10 @@ namespace LocalizationGem
                 FallbackLanguage);
         }
 
-        m_currentLanguage = "uk";
-        if (auto table = LoadStringTable(m_currentLanguage); table.has_value())
-        {
-            m_localizedStrings = AZStd::move(*table);
-        }
-        else
-        {
-            AZ_Warning("LocalizationGem", false,
-                "Cannot load the string table '%s'. Texts will be shown in '%s' instead.",
-                m_currentLanguage.c_str(), FallbackLanguage);
-        }
+        // The same code path as a language change in the game. m_currentLanguage is empty here, so the
+        // "same language" check passes; if the file fails, the current table stays empty and every key
+        // falls back to FallbackLanguage. Nobody listens to the notification yet, which is harmless.
+        SetLanguage("uk");
 
         // 2. Go live: own API, then both access paths required by LocalizationContract.
         LocalizationGemRequestBus::Handler::BusConnect();
