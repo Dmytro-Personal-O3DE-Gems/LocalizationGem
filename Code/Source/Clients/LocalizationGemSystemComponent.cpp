@@ -9,6 +9,12 @@
 
 namespace LocalizationGem
 {
+    namespace
+    {
+        // The fallback language is hardcoded to English for now, until there is a way to choose it.
+        static constexpr const char* FallbackLanguage = "en";
+    }
+
     AZ_COMPONENT_IMPL(LocalizationGemSystemComponent, "LocalizationGemSystemComponent",
         LocalizationGemSystemComponentTypeId);
 
@@ -42,21 +48,36 @@ namespace LocalizationGem
 
     AZStd::optional<AZStd::string> LocalizationGemSystemComponent::GetLocalizedString(const AZStd::string& key) const
     {
-        auto it = m_localizedStrings.find(key);
-        if (it != m_localizedStrings.end())
+        // 1. The current language.
+        if (auto it = m_localizedStrings.find(key); it != m_localizedStrings.end())
         {
             return it->second;
         }
 
-        // The prompt asks for its labels every tick, so a missing key would be
-        // reported on every call. Warn only the first time for each key:
+        // Steps 2 and 3 warn about a key only the first time: the prompt asks for its labels every tick,
+        // so without this the same warning would be printed on every call.
         // insert(...).second is true only when the key was not in the set yet.
+        // One set is enough for both warnings: for one language a key ends up either in step 2 or in step 3.
+
+        // 2. The fallback language: the key exists, but is not translated into the current language.
+        if (auto it = m_fallbackStrings.find(key); it != m_fallbackStrings.end())
+        {
+            if (m_reportedMissingKeys.insert(key).second)
+            {
+                AZ_Warning("LocalizationGem", false,
+                    "Key '%s' is not translated into '%s', using '%s'.",
+                    key.c_str(), m_currentLanguage.c_str(), FallbackLanguage);
+            }
+            return it->second;
+        }
+
+        // 3. Nowhere: usually a typo in the key, or a key that was never added to the fallback table.
         if (m_reportedMissingKeys.insert(key).second)
         {
             AZ_Warning("LocalizationGem", false,
-                "No text for key '%s' in language '%s'. "
+                "No text for key '%s' in '%s' or '%s'. "
                 "The consumer will fall back to its own default text.",
-                key.c_str(), m_currentLanguage.c_str());
+                key.c_str(), m_currentLanguage.c_str(), FallbackLanguage);
         }
 
         return AZStd::nullopt;
@@ -95,8 +116,7 @@ namespace LocalizationGem
         //    - the current language: what the player normally sees.
         //    TEMPORARY: the current language is hardcoded to Spanish until there is a way to choose it.
         //    es.csv has no "door.force" on purpose, to see the fallback.
-        const AZStd::string fallbackLanguage = "en";
-        if (auto table = LoadStringTable(fallbackLanguage); table.has_value())
+        if (auto table = LoadStringTable(FallbackLanguage); table.has_value())
         {
             m_fallbackStrings = AZStd::move(*table);
         }
@@ -105,7 +125,7 @@ namespace LocalizationGem
             // LoadStringTable has already logged why the file could not be read.
             AZ_Error("LocalizationGem", false,
                 "Cannot load the fallback string table '%s'. Players will see default texts instead of translations.",
-                fallbackLanguage.c_str());
+                FallbackLanguage);
         }
 
         m_currentLanguage = "es";
@@ -117,7 +137,7 @@ namespace LocalizationGem
         {
             AZ_Warning("LocalizationGem", false,
                 "Cannot load the string table '%s'. Texts will be shown in '%s' instead.",
-                m_currentLanguage.c_str(), fallbackLanguage.c_str());
+                m_currentLanguage.c_str(), FallbackLanguage);
         }
 
         // 2. Go live: own API, then both access paths required by LocalizationContract.
@@ -145,6 +165,8 @@ namespace LocalizationGem
 
         m_localizedStrings.clear();
         m_currentLanguage.clear();
+        m_fallbackStrings.clear();
+        m_reportedMissingKeys.clear();
     }
 
     // The return type stands before "LocalizationGemSystemComponent::", where names declared
