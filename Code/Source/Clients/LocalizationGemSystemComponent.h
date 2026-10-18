@@ -42,6 +42,7 @@ namespace LocalizationGem
         ////////////////////////////////////////////////////////////////////////
         // LocalizationGemRequestBus interface implementation
         void SetLanguage(const AZStd::string& languageCode) override;
+        AZStd::vector<LanguageInfo> GetAvailableLanguages() const override;
         ////////////////////////////////////////////////////////////////////////
 
         ////////////////////////////////////////////////////////////////////////
@@ -59,6 +60,12 @@ namespace LocalizationGem
         AZ_CONSOLEFUNC(LocalizationGemSystemComponent, SetLanguageCommand, AZ::ConsoleFunctorFlags::Null,
             "Debug: switches the current language. Usage: LocalizationGemSystemComponent.SetLanguageCommand <code>, e.g. uk");
 
+        // Debug console command. In the console: LocalizationGemSystemComponent.ListLanguagesCommand
+        // Prints GetAvailableLanguages() and the current language to the log.
+        void ListLanguagesCommand(const AZ::ConsoleCommandContainer& arguments);
+        AZ_CONSOLEFUNC(LocalizationGemSystemComponent, ListLanguagesCommand, AZ::ConsoleFunctorFlags::Null,
+            "Debug: prints the languages the player can choose. Usage: LocalizationGemSystemComponent.ListLanguagesCommand");
+
         // Key -> text of one language.
         using StringTable = AZStd::unordered_map<AZStd::string, AZStd::string>;
 
@@ -67,6 +74,17 @@ namespace LocalizationGem
         // Returns nullopt when the file is missing or cannot be read. The caller decides how
         // serious that is: an error for the fallback language, a warning for any other one.
         AZStd::optional<StringTable> LoadStringTable(const AZStd::string& languageCode) const;
+
+        // Builds the language menu from "assets/strings/languages.csv" (key = code, text = name in that language).
+        // Drops languages whose string table file does not exist, puts the fallback language first
+        // and sorts the others by code. Problems are reported to the log here.
+        // The only place that knows where the list comes from: switching to folder scanning later
+        // means rewriting this method only.
+        AZStd::vector<LanguageInfo> LoadAvailableLanguages() const;
+
+        // Languages the player can choose. Built once in Activate(), before the first SetLanguage(),
+        // because SetLanguage() accepts only codes from this list.
+        AZStd::vector<LanguageInfo> m_availableLanguages;
 
         // Current language code (e.g. "en") and its table always change together.
         AZStd::string m_currentLanguage;

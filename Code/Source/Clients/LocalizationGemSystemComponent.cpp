@@ -6,14 +6,27 @@
 #include <StringTableCsvParser.h>
 #include <LocalizationContract/LocalizationContractNotificationBus.h>
 
+#include <AzCore/IO/FileIO.h>
 #include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/std/algorithm.h>
+#include <AzCore/std/sort.h>
+#include <AzCore/std/utils.h>
 
 namespace LocalizationGem
 {
     namespace
     {
-        // The fallback language is hardcoded to English for now, until there is a way to choose it.
-        static constexpr const char* FallbackLanguage = "en";
+        // Language used when a key is missing in the current one. Chosen by the developer.
+        constexpr const char* FallbackLanguage = "en";
+
+        // String table with the language menu: key = language code, text = its name in that language.
+        constexpr const char* LanguageListName = "languages";
+
+        // The only place that knows where a string table lives in the cache.
+        AZStd::string GetStringTablePath(const AZStd::string& tableName)
+        {
+            return AZStd::string::format("@products@/assets/strings/%s.csv", tableName.c_str());
+        }
     }
 
     AZ_COMPONENT_IMPL(LocalizationGemSystemComponent, "LocalizationGemSystemComponent",
@@ -89,6 +102,12 @@ namespace LocalizationGem
         return m_currentLanguage;
     }
 
+    AZStd::vector<LanguageInfo> LocalizationGemSystemComponent::GetAvailableLanguages() const
+    {
+        // A copy on purpose: the caller must not hold a reference into the component.
+        return m_availableLanguages;
+    }
+
     LocalizationGemSystemComponent::LocalizationGemSystemComponent()
     {
         if (LocalizationGemInterface::Get() == nullptr)
@@ -109,6 +128,19 @@ namespace LocalizationGem
     {
         if (languageCode == m_currentLanguage)
         {
+            return;
+        }
+
+        // Only languages from the menu list can be chosen. This also rejects "languages": the list file
+        // itself lies next to the language files and would otherwise load as a "language".
+        const bool isAvailable = AZStd::any_of(m_availableLanguages.begin(), m_availableLanguages.end(),
+            [&languageCode](const LanguageInfo& language) { return language.m_code == languageCode; });
+        if (!isAvailable)
+        {
+            AZ_Warning("LocalizationGem", false,
+                "Language '%s' is not available, keeping '%s'. "
+                "See LocalizationGemSystemComponent.ListLanguagesCommand.",
+                languageCode.c_str(), m_currentLanguage.c_str());
             return;
         }
 
@@ -150,6 +182,17 @@ namespace LocalizationGem
         SetLanguage(AZStd::string(arguments[0]));
     }
 
+    void LocalizationGemSystemComponent::ListLanguagesCommand([[maybe_unused]] const AZ::ConsoleCommandContainer& arguments)
+    {
+        AZ_Printf("LocalizationGem", "Available languages (current: '%s'):\n", m_currentLanguage.c_str());
+        for (const LanguageInfo& language : m_availableLanguages)
+        {
+            AZ_Printf("LocalizationGem", "  %s - %s%s\n",
+                language.m_code.c_str(), language.m_displayName.c_str(),
+                language.m_code == m_currentLanguage ? "  <- current" : "");
+        }
+    }
+
     void LocalizationGemSystemComponent::Init()
     {
     }
@@ -157,10 +200,12 @@ namespace LocalizationGem
     void LocalizationGemSystemComponent::Activate()
     {
         // 1. Prepare the data first, so nobody can reach a half-ready component.
-        //    Two tables are loaded from the cache (assets/strings/<language>.csv):
-        //    - the fallback language (English): used when a key is missing in the current language;
-        //    - the current language: what the player normally sees.
+        //    - the language menu: first, because SetLanguage() accepts only codes from it;
+        //    - the fallback language (English) table: used when a key is missing in the current language;
+        //    - the current language table: what the player normally sees.
         //    TEMPORARY: the starting language is hardcoded until there is a saved player setting.
+        m_availableLanguages = LoadAvailableLanguages();
+
         if (auto table = LoadStringTable(FallbackLanguage); table.has_value())
         {
             m_fallbackStrings = AZStd::move(*table);
@@ -174,8 +219,9 @@ namespace LocalizationGem
         }
 
         // The same code path as a language change in the game. m_currentLanguage is empty here, so the
-        // "same language" check passes; if the file fails, the current table stays empty and every key
-        // falls back to FallbackLanguage. Nobody listens to the notification yet, which is harmless.
+        // "same language" check passes; if the language is not in the menu or its file fails, the current
+        // table stays empty and every key falls back to FallbackLanguage. Nobody listens to the
+        // notification yet, which is harmless.
         SetLanguage("uk");
 
         // 2. Go live: own API, then both access paths required by LocalizationContract.
@@ -205,6 +251,7 @@ namespace LocalizationGem
         m_currentLanguage.clear();
         m_fallbackStrings.clear();
         m_reportedMissingKeys.clear();
+        m_availableLanguages.clear();
     }
 
     // The return type stands before "LocalizationGemSystemComponent::", where names declared
@@ -212,14 +259,14 @@ namespace LocalizationGem
     AZStd::optional<LocalizationGemSystemComponent::StringTable> LocalizationGemSystemComponent::LoadStringTable(
         const AZStd::string& languageCode) const
     {
-        AZStd::string filePath = AZStd::string::format("@products@/assets/strings/%s.csv", languageCode.c_str());
+        const AZStd::string filePath = GetStringTablePath(languageCode);
         auto result = AZ::Utils::ReadFile(filePath);
 
         if (!result.IsSuccess())
         {
             // Only this method knows why the file could not be read (missing, empty, ...).
             // The caller adds its own message about how serious that is.
-            AZ_Warning("LocalizationGem", false, "Cannot load the string table for language '%s': %s",
+            AZ_Warning("LocalizationGem", false, "Cannot load the string table '%s': %s",
                 languageCode.c_str(), result.GetError().c_str());
             return AZStd::nullopt;
         }
@@ -235,6 +282,61 @@ namespace LocalizationGem
         // m_strings is a member of a local variable, so return does not move it by itself:
         // without AZStd::move every string of the table would be copied.
         return AZStd::move(tableResult.m_strings);
+    }
+
+    AZStd::vector<LanguageInfo> LocalizationGemSystemComponent::LoadAvailableLanguages() const
+    {
+        AZStd::vector<LanguageInfo> languages;
+
+        // The list is an ordinary string table, so the CSV parser reads it: key = code, text = name.
+        // The parser returns an unordered_map, so the order of rows in the file is lost here;
+        // the order is set below instead.
+        AZStd::optional<StringTable> list = LoadStringTable(LanguageListName);
+        if (!list.has_value())
+        {
+            // LoadStringTable has already logged why. Without the list the menu would be empty,
+            // so offer at least the fallback language (its code doubles as its name).
+            AZ_Error("LocalizationGem", false,
+                "Cannot load the language list '%s'. Only '%s' will be available.",
+                GetStringTablePath(LanguageListName).c_str(), FallbackLanguage);
+            languages.push_back(LanguageInfo{ FallbackLanguage, FallbackLanguage });
+            return languages;
+        }
+
+        // Offer only languages whose file exists. Only existence is checked here (cheap); a broken
+        // file is caught later by SetLanguage(), which then keeps the previous language.
+        AZ::IO::FileIOBase* fileIO = AZ::IO::FileIOBase::GetInstance();
+        for (const auto& [code, displayName] : *list)
+        {
+            const AZStd::string path = GetStringTablePath(code);
+            if (fileIO != nullptr && !fileIO->Exists(path.c_str()))
+            {
+                AZ_Warning("LocalizationGem", false,
+                    "Language '%s' is listed in '%s', but '%s' does not exist. It will not be offered.",
+                    code.c_str(), GetStringTablePath(LanguageListName).c_str(), path.c_str());
+                continue;
+            }
+            languages.push_back(LanguageInfo{ code, displayName });
+        }
+
+        // Order: the fallback language first, the others by code, so the menu is the same on every run.
+        auto fallback = AZStd::find_if(languages.begin(), languages.end(),
+            [](const LanguageInfo& language) { return language.m_code == FallbackLanguage; });
+        if (fallback == languages.end())
+        {
+            AZ_Error("LocalizationGem", false,
+                "The fallback language '%s' is missing from '%s' (or its file does not exist). "
+                "It must always be available.",
+                FallbackLanguage, GetStringTablePath(LanguageListName).c_str());
+            AZStd::sort(languages.begin(), languages.end(),
+                [](const LanguageInfo& a, const LanguageInfo& b) { return a.m_code < b.m_code; });
+            return languages;
+        }
+
+        AZStd::iter_swap(languages.begin(), fallback);
+        AZStd::sort(languages.begin() + 1, languages.end(),
+            [](const LanguageInfo& a, const LanguageInfo& b) { return a.m_code < b.m_code; });
+        return languages;
     }
 
 } // namespace LocalizationGem
