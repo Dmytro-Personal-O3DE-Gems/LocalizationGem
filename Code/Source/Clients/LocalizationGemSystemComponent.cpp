@@ -136,6 +136,20 @@ namespace LocalizationGem
             &LocalizationContract::LocalizationContractNotifications::OnLocalizedStringsChanged);
     }
 
+    void LocalizationGemSystemComponent::SetLanguageCommand(const AZ::ConsoleCommandContainer& arguments)
+    {
+        // 'arguments' holds only the words after the command name: for "...SetLanguageCommand uk" it is { "uk" }.
+        if (arguments.empty())
+        {
+            AZ_Warning("LocalizationGem", false,
+                "Usage: LocalizationGemSystemComponent.SetLanguageCommand <code>, e.g. uk");
+            return;
+        }
+
+        // arguments[0] is a string_view into the console's own text: copy it into a string of our own.
+        SetLanguage(AZStd::string(arguments[0]));
+    }
+
     void LocalizationGemSystemComponent::Init()
     {
     }

@@ -9,6 +9,8 @@
 #include <AzCore/std/containers/unordered_set.h>
 #include <AzCore/std/optional.h>
 #include <AzCore/std/string/string.h>
+#include <AzCore/Console/IConsole.h>   // AZ_CONSOLEFUNC, AZ::ConsoleCommandContainer
+
 
 namespace LocalizationGem
 {
@@ -50,6 +52,13 @@ namespace LocalizationGem
         ////////////////////////////////////////////////////////////////////////
 
     private:
+        // Debug console command. In the console: LocalizationGemSystemComponent.SetLanguageCommand uk
+        // A separate name from SetLanguage on purpose: AZ_CONSOLEFUNC takes &Class::Method,
+        // and two methods with the same name would make that address ambiguous.
+        void SetLanguageCommand(const AZ::ConsoleCommandContainer& arguments);
+        AZ_CONSOLEFUNC(LocalizationGemSystemComponent, SetLanguageCommand, AZ::ConsoleFunctorFlags::Null,
+            "Debug: switches the current language. Usage: LocalizationGemSystemComponent.SetLanguageCommand <code>, e.g. uk");
+
         // Key -> text of one language.
         using StringTable = AZStd::unordered_map<AZStd::string, AZStd::string>;
 
