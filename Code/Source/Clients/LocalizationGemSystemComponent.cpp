@@ -128,7 +128,7 @@ namespace LocalizationGem
                 FallbackLanguage);
         }
 
-        m_currentLanguage = "es";
+        m_currentLanguage = "uk";
         if (auto table = LoadStringTable(m_currentLanguage); table.has_value())
         {
             m_localizedStrings = AZStd::move(*table);
