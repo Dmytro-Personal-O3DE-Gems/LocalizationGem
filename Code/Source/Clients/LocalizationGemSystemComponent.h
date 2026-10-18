@@ -50,10 +50,22 @@ namespace LocalizationGem
         ////////////////////////////////////////////////////////////////////////
 
     private:
+        // Key -> text of one language.
+        using StringTable = AZStd::unordered_map<AZStd::string, AZStd::string>;
+
+        // Reads "@products@/assets/strings/<languageCode>.csv" and parses it.
+        // Rows the parser skipped are reported to the log here, the caller does not see them.
+        // Returns nullopt when the file is missing or cannot be read. The caller decides how
+        // serious that is: an error for the fallback language, a warning for any other one.
+        AZStd::optional<StringTable> LoadStringTable(const AZStd::string& languageCode) const;
+
         // Current language code (e.g. "en") and its table always change together.
         AZStd::string m_currentLanguage;
         // Key -> text for m_currentLanguage.
-        AZStd::unordered_map<AZStd::string, AZStd::string> m_localizedStrings;
+        StringTable m_localizedStrings;
+        // Key -> text for the fallback language (currently English).
+        // Used when a key is missing in m_localizedStrings.
+        StringTable m_fallbackStrings;
         // Keys that have been reported as missing for m_currentLanguage.
         mutable AZStd::unordered_set<AZStd::string> m_reportedMissingKeys;
     };
