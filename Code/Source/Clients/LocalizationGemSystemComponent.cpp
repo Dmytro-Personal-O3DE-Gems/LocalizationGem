@@ -4,10 +4,12 @@
 #include <LocalizationGem/LocalizationGemTypeIds.h>
 #include <AzCore/Utils/Utils.h>
 #include <StringTableCsvParser.h>
+#include <SystemLanguages.h>
 #include <LocalizationContract/LocalizationContractNotificationBus.h>
 
 #include <AzCore/IO/FileIO.h>
 #include <AzCore/Serialization/SerializeContext.h>
+#include <AzCore/StringFunc/StringFunc.h>
 #include <AzCore/std/algorithm.h>
 #include <AzCore/std/sort.h>
 #include <AzCore/std/utils.h>
@@ -203,7 +205,6 @@ namespace LocalizationGem
         //    - the language menu: first, because SetLanguage() accepts only codes from it;
         //    - the fallback language (English) table: used when a key is missing in the current language;
         //    - the current language table: what the player normally sees.
-        //    TEMPORARY: the starting language is hardcoded until there is a saved player setting.
         m_availableLanguages = LoadAvailableLanguages();
 
         if (auto table = LoadStringTable(FallbackLanguage); table.has_value())
@@ -218,11 +219,22 @@ namespace LocalizationGem
                 FallbackLanguage);
         }
 
+        // The starting language: the first language of the operating system that is in the menu, otherwise
+        // English. Remembering the player's own choice is the game's job: its settings code loads the saved
+        // language and calls SetLanguage() itself.
+        const AZStd::vector<AZStd::string> systemLanguages = GetSystemLanguages();
+        const AZStd::string startLanguage = PickStartLanguage(systemLanguages, m_availableLanguages, FallbackLanguage);
+
+        AZStd::string systemLanguageList;
+        AZ::StringFunc::Join(systemLanguageList, systemLanguages.begin(), systemLanguages.end(), ", ");
+        AZ_TracePrintf("LocalizationGem", "System languages: [%s]. Starting language: '%s'.\n",
+            systemLanguageList.c_str(), startLanguage.c_str());
+
         // The same code path as a language change in the game. m_currentLanguage is empty here, so the
-        // "same language" check passes; if the language is not in the menu or its file fails, the current
-        // table stays empty and every key falls back to FallbackLanguage. Nobody listens to the
-        // notification yet, which is harmless.
-        SetLanguage("uk");
+        // "same language" check passes; if the language is rejected (only the fallback can be missing from the
+        // menu) or its file fails, the current table stays empty and every key falls back to FallbackLanguage.
+        // Nobody listens to the notification yet, which is harmless.
+        SetLanguage(startLanguage);
 
         // 2. Go live: own API, then both access paths required by LocalizationContract.
         LocalizationGemRequestBus::Handler::BusConnect();

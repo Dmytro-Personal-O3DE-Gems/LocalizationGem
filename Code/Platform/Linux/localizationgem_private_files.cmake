@@ -5,4 +5,5 @@
 #      ../Include/Linux/LocalizationGemLinux.h
 
 set(FILES
+    SystemLanguages_Linux.cpp
 )

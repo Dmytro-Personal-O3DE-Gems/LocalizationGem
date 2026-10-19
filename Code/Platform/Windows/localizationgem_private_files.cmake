@@ -5,4 +5,5 @@
 #      ../Include/Windows/LocalizationGemWindows.h
 
 set(FILES
+    SystemLanguages_Windows.cpp
 )
