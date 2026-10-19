@@ -5,6 +5,9 @@ Run it with the Python of the engine. python.cmd needs cmake in PATH, so use
 "Developer PowerShell for VS 2022":
     D:\O3DE\26.05\python\python.cmd check_localization.py D:\O3DE\Projects\TestProject [--strict]
 
+In the Editor: menu Localization > Check Localization (Editor/Scripts/localization_gem_editor.py),
+the report goes to the Console.
+
 Errors: a key used in the project but missing in en.csv, broken rows in a string table,
 problems in languages.csv. Warnings: missing translations, keys nobody uses, a text without a key.
 
