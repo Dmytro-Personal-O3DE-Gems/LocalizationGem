@@ -72,7 +72,7 @@ Your game provides the texts: they live in **your project**, not in this gem (se
    o3de register --gem-path D:\O3DE\UserGems\LocalizationContract
    o3de register --gem-path D:\O3DE\UserGems\LocalizationGem
    ```
-3. Enable **Localization Gem** in your project: Project Manager → *Configure Gems*, or add `"LocalizationGem"` to `gem_names` in `project.json`. LocalizationContract comes with it as a dependency.
+3. Enable **Localization Gem** and **Localization Contract** in your project: Project Manager → *Configure Gems*, or add `"LocalizationGem"` and `"LocalizationContract"` to `gem_names` in `project.json`.
 4. Add the string tables to your project (next section).
 5. Rebuild the project **with the Editor closed** (otherwise the linker cannot overwrite the gem's DLL).
 
