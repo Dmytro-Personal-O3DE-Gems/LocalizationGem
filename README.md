@@ -282,6 +282,8 @@ Exit code: `0` — no errors (with `--strict`: no warnings either), `1` — othe
 
 What it reads: `Assets/Strings/*.csv` (by the same rules as the gem), C++ files (`.cpp`, `.h`, `.hpp`, `.inl`) for `LOCALIZATION_KEY("…")` outside comments, and prefabs (`.prefab`) for key/default-text pairs, including overrides of nested prefabs. It skips `Cache`, `build`, `user`, `_Gems` and hidden folders.
 
+The C++ code of **your gems** is checked too, with no settings: the gems enabled in `project.json` (and their dependencies) that are registered in your O3DE manifest (`~/.o3de/o3de_manifest.json`, `external_subdirectories` — where `o3de register --gem-path` writes them). Engine gems are not scanned. Places in gems are printed with the gem's name: `[RebindableInput] Code/Source/InputChannelText.cpp:25`. A gem that should not depend on LocalizationContract can define the same marker itself (`#define LOCALIZATION_KEY(key) "" key`): the tool looks for the text of the marker, not for the header.
+
 | Error | Warning |
 |---|---|
 | a key is used but missing in `en.csv` | a key in `en.csv` is not used anywhere |
@@ -294,15 +296,15 @@ Example:
 
 ```
 Localization check: D:\O3DE\Projects\TestProject
-Languages: en, es, uk | keys in en.csv: 5 | keys used: 4
+Languages: en, es, uk | keys in en.csv: 73 | keys used: 72
+Gems scanned: InputHintsContract, InteractionSystem, InteractionSystemUI, LocalizationContract, LocalizationGem, ModularCharacterController, RebindableInput
 
-WARNING  Assets\Strings\en.csv:4: key 'door.lock' is not used in the project's prefabs or code
-WARNING  Assets\Strings\es.csv: 1 key(s) not translated, shown in English: door.force
+WARNING  Assets\Strings\en.csv:4: key 'door.lock' is not used in the prefabs or code of the project and its gems
 
-0 error(s), 2 warning(s)
+0 error(s), 1 warning(s)
 ```
 
-Limits: it looks only inside the project folder (keys used only in a gem's own code are reported as unused), and it does not understand `#if 0`, raw string literals or `.uicanvas` files.
+Limits: prefabs are read only from the project, not from gems; it does not understand `#if 0`, raw string literals or `.uicanvas` files.
 
 ## Tests
 
@@ -321,7 +323,6 @@ Planned or not yet verified:
 - **Placeholders and plurals** (`"Open {door}"`, plural forms).
 - **System language on Mac, iOS and Android** (English for now) and a test run on Linux.
 - **Script Canvas / Lua** access to switching languages.
-- **Checking tool**: extra folders, so keys in gems' own code are found.
 
 ## License
 

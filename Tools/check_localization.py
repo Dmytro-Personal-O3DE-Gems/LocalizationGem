@@ -1,6 +1,11 @@
 r"""Checks the localization of an O3DE project: string tables, languages.csv and the keys used
 in prefabs and C++ code (LOCALIZATION_KEY).
 
+The C++ code of the project and of the gems it enables is scanned. Gems are found without settings:
+the gems enabled in project.json (and the gems they depend on) that are registered in the user's
+O3DE manifest (~/.o3de/o3de_manifest.json, "external_subdirectories"), i.e. your own gems.
+Engine gems are not registered there and are not scanned.
+
 Run it with the Python of the engine. python.cmd needs cmake in PATH, so use
 "Developer PowerShell for VS 2022":
     D:\O3DE\26.05\python\python.cmd check_localization.py D:\O3DE\Projects\TestProject [--strict]
@@ -39,6 +44,12 @@ FALLBACK_LANGUAGE = "en"
 # and _Gems (junctions to the gems: os.walk in Python 3.10 goes through junctions, so the gems
 # would be scanned as part of the project).
 SKIPPED_FOLDERS = {"Cache", "build", "user", "_Gems"}
+
+# Gem folders that are not sources: build output of a gem opened on its own, the cache, per-user settings.
+SKIPPED_GEM_FOLDERS = {"build", "Cache", "user"}
+
+# The user's O3DE manifest: where "o3de register" writes the paths of registered gems.
+O3DE_MANIFEST = Path.home() / ".o3de" / "o3de_manifest.json"
 
 CODE_SUFFIXES = {".cpp", ".h", ".hpp", ".inl"}
 PREFAB_SUFFIXES = {".prefab"}
@@ -93,6 +104,7 @@ class Report:
     """Everything check() found, plus a few numbers for the summary line."""
 
     languages: list[str] = field(default_factory=list)
+    gems: list[str] = field(default_factory=list)  # names of the gems whose code was scanned
     defined_keys: int = 0
     used_keys: int = 0
     findings: list[Finding] = field(default_factory=list)
@@ -252,13 +264,60 @@ def read_languages(project: Path) -> tuple[list[str], list[Finding]]:
     return languages, findings
 
 
-def collect_code_keys(project: Path) -> tuple[list[KeyUse], list[Finding]]:
-    """Finds LOCALIZATION_KEY("...") in the project's C++ files. Comments are skipped: a marker
-    inside a comment does not exist for the compiler, so it must not count as a use."""
+def find_gems(project: Path) -> tuple[list[tuple[str, Path]], list[Finding]]:
+    """The user's gems the project uses: enabled in project.json, or a dependency of one, and registered
+    in the O3DE manifest. Returns (name, folder) pairs sorted by name."""
+    findings: list[Finding] = []
+
+    # Registered gems: name -> folder. A missing manifest is not an error: then only the project is scanned.
+    registered: dict[str, Path] = {}
+    dependencies: dict[str, list[str]] = {}
+    if O3DE_MANIFEST.is_file():
+        try:
+            manifest = json.loads(O3DE_MANIFEST.read_text(encoding="utf-8"))
+        except (OSError, ValueError) as error:
+            findings.append(Finding(WARNING, str(O3DE_MANIFEST), f"cannot read the O3DE manifest, gems are not scanned: {error}"))
+            manifest = {}
+        for entry in manifest.get("external_subdirectories", []):
+            folder = Path(entry)
+            gem_json = folder / "gem.json"
+            if not gem_json.is_file():
+                continue  # not a gem (a project, a template...) or a folder that no longer exists
+            try:
+                gem = json.loads(gem_json.read_text(encoding="utf-8"))
+            except (OSError, ValueError) as error:
+                findings.append(Finding(WARNING, str(gem_json), f"cannot read gem.json, the gem is not scanned: {error}"))
+                continue
+            name = gem.get("gem_name", "")
+            if name:
+                registered[name] = folder
+                dependencies[name] = [_gem_name(item) for item in gem.get("dependencies", [])]
+
+    # Enabled gems and, transitively, their dependencies: a contract gem enabled only as a dependency counts too.
+    project_json = json.loads((project / "project.json").read_text(encoding="utf-8"))
+    pending = [_gem_name(item) for item in project_json.get("gem_names", [])]
+    found: set[str] = set()
+    while pending:
+        name = pending.pop()
+        if name in found or name not in registered:
+            continue
+        found.add(name)
+        pending.extend(dependencies.get(name, []))
+
+    return sorted((name, registered[name]) for name in found), findings
+
+
+def collect_code_keys(project: Path, gems: list[tuple[str, Path]]) -> tuple[list[KeyUse], list[Finding]]:
+    """Finds LOCALIZATION_KEY("...") in the C++ files of the project and of the gems. Comments are skipped:
+    a marker inside a comment does not exist for the compiler, so it must not count as a use."""
     uses: list[KeyUse] = []
     findings: list[Finding] = []
 
-    for path in _project_files(project, CODE_SUFFIXES):
+    sources = [(path, _location_function(project, None)) for path in _project_files(project, CODE_SUFFIXES)]
+    for name, folder in gems:
+        sources += [(path, _location_function(folder, name)) for path in _source_files(folder, CODE_SUFFIXES, SKIPPED_GEM_FOLDERS)]
+
+    for path, location_of in sources:
         # Only the ASCII marker matters, so a file in another encoding must not stop the check.
         text = _blank_comments(path.read_text(encoding="utf-8", errors="replace"))
 
@@ -268,7 +327,7 @@ def collect_code_keys(project: Path) -> tuple[list[KeyUse], list[Finding]]:
             if text[line_start:start.start()].lstrip().startswith("#define"):
                 continue  # the definition of the macro itself, not a use
 
-            location = _location(project, path, line)
+            location = location_of(path, line)
             marker = MARKER_WITH_KEY.match(text, start.start())
             if marker is None:
                 # Compiles if what is inside becomes a string literal after substitution
@@ -371,7 +430,10 @@ def check(project: Path) -> Report:
             report.findings.append(Finding(ERROR, _location(project, fallback_path, line), message))
     report.defined_keys = len(fallback.strings)
 
-    code_uses, findings = collect_code_keys(project)
+    gems, findings = find_gems(project)
+    report.gems = [name for name, _ in gems]
+    report.findings += findings
+    code_uses, findings = collect_code_keys(project, gems)
     report.findings += findings
     prefab_uses, findings = collect_prefab_keys(project)
     report.findings += findings
@@ -388,7 +450,7 @@ def check(project: Path) -> Report:
     for key, line in fallback.key_lines.items():
         if key not in used_keys:
             report.findings.append(Finding(WARNING, _location(project, fallback_path, line),
-                                           f"key '{key}' is not used in the project's prefabs or code"))
+                                           f"key '{key}' is not used in the prefabs or code of the project and its gems"))
 
     # 3. Other languages against English.
     for code, table in tables.items():
@@ -418,6 +480,7 @@ def print_report(report: Report, project: Path, strict: bool) -> int:
     print(f"Localization check: {project}")
     print(f"Languages: {', '.join(report.languages)} | keys in {FALLBACK_LANGUAGE}.csv: {report.defined_keys}"
           f" | keys used: {report.used_keys}")
+    print(f"Gems scanned: {', '.join(report.gems) if report.gems else 'none'}")
     print()
 
     for finding in errors + warnings:  # errors first: they are the ones to fix
@@ -481,16 +544,37 @@ def _all_fields_empty(fields: list[str]) -> bool:
 
 
 def _project_files(project: Path, suffixes: set[str]):
-    """Yields the project's files with these extensions, in a stable order, without the skipped folders.
-    'yield' makes this a generator: it hands out one file at a time instead of building a list."""
-    for folder, subfolders, files in os.walk(project):
-        at_root = Path(folder) == project
+    """Yields the project's files with these extensions, in a stable order, without the skipped folders."""
+    return _source_files(project, suffixes, SKIPPED_FOLDERS)
+
+
+def _source_files(root: Path, suffixes: set[str], skipped_at_root: set[str]):
+    """Yields the files under root with these extensions, in a stable order, without hidden folders and without
+    the root's skipped folders. 'yield' makes this a generator: it hands out one file at a time instead of building a list."""
+    for folder, subfolders, files in os.walk(root):
+        at_root = Path(folder) == root
         # Changing the list in place ([:] =) tells os.walk not to go into the removed folders at all.
         subfolders[:] = sorted(name for name in subfolders
-                               if not name.startswith(".") and not (at_root and name in SKIPPED_FOLDERS))
+                               if not name.startswith(".") and not (at_root and name in skipped_at_root))
         for name in sorted(files):
             if Path(name).suffix.lower() in suffixes:
                 yield Path(folder) / name
+
+
+def _gem_name(item: object) -> str:
+    """The gem name of a "gem_names" / "dependencies" entry: "RebindableInput==1.0.0" -> "RebindableInput";
+    an entry may also be an object {"name": ..., "optional": ...}."""
+    if isinstance(item, dict):
+        item = item.get("name", "")
+    return re.split(r"[=<>~!\s]", str(item), maxsplit=1)[0]
+
+
+def _location_function(root: Path, gem_name: str | None):
+    """A function (path, line) -> location text: relative to the project, or '[Gem] path' for a gem's file."""
+    def location_of(path: Path, line: int = 0) -> str:
+        text = _location(root, path, line)
+        return f"[{gem_name}] {text}" if gem_name else text
+    return location_of
 
 
 def _blank_comments(text: str) -> str:
